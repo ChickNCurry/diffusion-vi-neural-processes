@@ -4,22 +4,22 @@ import torch
 from torch import Tensor
 
 
-def img_to_sequence(img: Tensor) -> Tensor:
+def img_batch_to_sequence(batch: Tensor) -> Tensor:
     # (batch_size, channels, height, width)
 
     indices = (
-        torch.arange(img.shape[1] * img.shape[2] * img.shape[3])
+        torch.arange(batch.shape[1] * batch.shape[2] * batch.shape[3])
         .view(1, -1, 1)
-        .repeat(img.shape[0], 1, 1)
+        .repeat(batch.shape[0], 1, 1)
     )
 
-    flattend = img.view(img.shape[0], -1, 1)
-    context = torch.cat([indices, flattend], dim=2)
+    flattend = batch.view(batch.shape[0], -1, 1)
+    sequence = torch.cat([indices, flattend], dim=2)
     # -> (batch_size, channels * height * width, 2)
 
     # seq_length = channels * height * width
 
-    return context
+    return sequence
 
 
 def split_context_target(

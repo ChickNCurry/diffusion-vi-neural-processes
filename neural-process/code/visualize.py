@@ -7,7 +7,7 @@ from torch import Tensor
 from tqdm import tqdm
 
 
-def visualize_batch(
+def visualize_batch_1d(
     batch: Tensor,
 ) -> None:
     plt.figure(figsize=(9, 3))
@@ -15,7 +15,14 @@ def visualize_batch(
     for i in range(batch[0].shape[0]):
         x = batch[0][i, :, 0]
         y = batch[1][i, :, 0]
-        plt.scatter(x, y)
+        plt.scatter(x, y, marker=".")
+    plt.show()
+
+
+def visualize_batch_2d(batch: Tensor) -> None:
+    plt.figure(figsize=(2, 2))
+    plt.imshow(batch[0][0].permute(1, 2, 0))
+    plt.axis("off")
     plt.show()
 
 
@@ -31,7 +38,7 @@ def visualize_decoder(model: torch.nn.Module, device: torch.device, z_dim: int) 
     for i in range(x_target.shape[0]):
         x = x_target[i, :, 0].detach().cpu().numpy()
         y = mu[i, :, 0].detach().cpu().numpy()
-        plt.scatter(x, y)
+        plt.scatter(x, y, marker=".")
     plt.show()
 
 
