@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import Tuple
 
 import torch
 import torch.nn as nn
@@ -11,6 +11,8 @@ class SetEncoder(nn.Module):
 
         self.encoder = nn.Sequential(
             nn.Linear(x_dim + y_dim, h_dim),
+            nn.SiLU(),
+            nn.Linear(h_dim, h_dim),
             nn.SiLU(),
             nn.Linear(h_dim, h_dim),
             nn.SiLU(),
@@ -74,7 +76,7 @@ class LatentEncoder(nn.Module):
         # -> (1, z_dim)
 
         zs = torch.cat(
-            [self.reparameterize(mu, logvar) for _ in range(n_samples)], dim=1
+            [self.reparameterize(mu, logvar) for _ in range(n_samples)], dim=0
         )
         # -> (n_samples, z_dim)
 
@@ -102,7 +104,7 @@ class Decoder(nn.Module):
         z = z.unsqueeze(1).repeat(1, x_target.shape[1], 1)
         # -> (batch_size, target_size, z_dim)
 
-        z_t = torch.cat([z, x_target], dim=2)
+        z_t = torch.cat([z, x_target], dim=-1)
         # -> (batch_size, target_size, z_dim + x_dim)
 
         logits = self.decoder(z_t)
@@ -178,6 +180,8 @@ class NeuralProcess(nn.Module):
 
         zs, z_mu, z_logvar = self.latent_encoder.sample(r, n_samples)
         # -> (n_samples, z_dim), (1, z_dim), (1, z_dim)
+
+        x_target = x_target.repeat(n_samples, 1, 1)
 
         mus, logvars = self.decoder(zs, x_target)
         # -> (n_samples, target_size, y_dim)

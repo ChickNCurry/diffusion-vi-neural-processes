@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -51,12 +51,18 @@ class DataModule:
 
     def train_dataloader(self) -> DataLoader[Tuple[Tensor, Tensor]]:
         return DataLoader(
-            self.train_set, batch_size=self.batch_size, shuffle=True, num_workers=15
+            self.train_set,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=15,
         )
 
     def val_dataloader(self) -> DataLoader[Tuple[Tensor, Tensor]]:
         return DataLoader(
-            self.val_set, batch_size=self.batch_size, shuffle=False, num_workers=15
+            self.val_set,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=15,
         )
 
 
