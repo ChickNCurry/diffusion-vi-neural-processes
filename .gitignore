@@ -4,3 +4,4 @@ benchmarks/
 .mypy_cache/
 __pycache__/
 .vscode/
+wandb/

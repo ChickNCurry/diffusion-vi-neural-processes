@@ -2,6 +2,7 @@ from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 import torch
+import wandb
 from components import NeuralProcess
 from torch import Tensor
 from torch.distributions import Normal
@@ -29,10 +30,10 @@ def train_and_validate(
 
     # torch.autograd.set_detect_anomaly(True)
 
-    avg_train_recon_losses = []
+    avg_train_neg_log_likes = []
     avg_train_kl_divs = []
 
-    avg_val_recon_losses = []
+    avg_val_neg_log_likes = []
     avg_val_kl_divs = []
 
     for epoch in range(num_epochs):
@@ -40,7 +41,7 @@ def train_and_validate(
         model.train()
         with torch.inference_mode(False):
 
-            train_recon_losses = []
+            train_neg_log_likes = []
             train_kl_divs = []
 
             dataloader = data_module.train_dataloader()
@@ -48,7 +49,7 @@ def train_and_validate(
 
             for batch in loop:
 
-                loss, recon_loss, kl_div = step(model, device, batch, preprocessing)
+                loss, neg_log_like, kl_div = step(model, device, batch, preprocessing)
 
                 optimizer.zero_grad()
                 loss.backward()  # type: ignore
@@ -57,20 +58,37 @@ def train_and_validate(
                 loop.set_postfix(
                     epoch=epoch,
                     loss=loss.item(),
-                    recon_loss=recon_loss.item(),
+                    recon_loss=neg_log_like.item(),
                     kl_div=kl_div.item(),
                 )
 
-                train_recon_losses.append(recon_loss.item())
+                train_neg_log_likes.append(neg_log_like.item())
                 train_kl_divs.append(kl_div.item())
 
-            avg_train_recon_losses.append(float(np.mean(train_recon_losses)))
-            avg_train_kl_divs.append(float(np.mean(train_kl_divs)))
+                wandb.log(
+                    {
+                        "train_neg_log_like": neg_log_like.item(),
+                        "train_kl_div": kl_div.item(),
+                    }
+                )
+
+            avg_train_neg_log_like = float(np.mean(train_neg_log_likes))
+            avg_train_kl_div = float(np.mean(train_kl_divs))
+
+            avg_train_neg_log_likes.append(avg_train_neg_log_like)
+            avg_train_kl_divs.append(avg_train_kl_div)
+
+            wandb.log(
+                {
+                    "avg_train_neg_log_like": avg_train_neg_log_like,
+                    "avg_train_kl_div": avg_train_kl_div,
+                }
+            )
 
         model.eval()
         with torch.no_grad():
 
-            val_recon_losses = []
+            val_neg_log_likes = []
             val_kl_divs = []
 
             dataloader = data_module.val_dataloader()
@@ -78,25 +96,42 @@ def train_and_validate(
 
             for batch in loop:
 
-                loss, recon_loss, kl_div = step(model, device, batch, preprocessing)
+                loss, neg_log_like, kl_div = step(model, device, batch, preprocessing)
 
-                val_recon_losses.append(recon_loss.item())
+                val_neg_log_likes.append(neg_log_like.item())
                 val_kl_divs.append(kl_div.item())
 
                 loop.set_postfix(
                     epoch=epoch,
                     loss=loss.item(),
-                    recon_loss=recon_loss.item(),
+                    recon_loss=neg_log_like.item(),
                     kl_div=kl_div.item(),
                 )
 
-            avg_val_recon_losses.append(float(np.mean(val_recon_losses)))
-            avg_val_kl_divs.append(float(np.mean(val_kl_divs)))
+                wandb.log(
+                    {
+                        "val_neg_log_like": neg_log_like.item(),
+                        "val_kl_div": kl_div.item(),
+                    }
+                )
+
+            avg_val_neg_log_like = float(np.mean(val_neg_log_likes))
+            avg_val_kl_div = float(np.mean(val_kl_divs))
+
+            avg_val_neg_log_likes.append(avg_val_neg_log_like)
+            avg_val_kl_divs.append(avg_val_kl_div)
+
+            wandb.log(
+                {
+                    "avg_val_neg_log_like": avg_val_neg_log_like,
+                    "avg_val_kl_div": avg_val_kl_div,
+                }
+            )
 
     return (
-        avg_train_recon_losses,
+        avg_train_neg_log_likes,
         avg_train_kl_divs,
-        avg_val_recon_losses,
+        avg_val_neg_log_likes,
         avg_val_kl_divs,
     )
 
@@ -134,8 +169,8 @@ def step(
     C_distro = Normal(mu_C, torch.exp(0.5 * logvar_C))  # type: ignore
     pred_distro = Normal(mu, torch.exp(0.5 * logvar))  # type: ignore
 
-    recon_loss = -pred_distro.log_prob(y_target).mean(dim=0).sum()  # type: ignore
+    neg_log_like = -pred_distro.log_prob(y_target).mean(dim=0).sum()  # type: ignore
     kl_div = kl_divergence(D_distro, C_distro).mean(dim=0).sum()
-    loss = recon_loss + kl_div
+    loss = neg_log_like + kl_div
 
-    return loss, recon_loss, kl_div
+    return loss, neg_log_like, kl_div

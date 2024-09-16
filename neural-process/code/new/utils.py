@@ -1,4 +1,5 @@
-from typing import Callable, List, Optional, Tuple
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import torch
@@ -132,3 +133,26 @@ def x_y_to_img(x_data: Tensor, y_data: Tensor) -> Tensor:
         )
 
     return img
+
+
+@dataclass
+class Config:
+    task: str
+    n_task: int
+    n_datapoints_per_task: int
+    output_noise: float
+    seed_task: int
+    seed_x: int
+    seed_noise: int
+    x_dim: int
+    y_dim: int
+    r_dim: int
+    z_dim: int
+    h_dim: int
+    split: Tuple[float, float]
+    batch_size: int
+    num_epochs: int
+    learning_rate: float
+
+    def asdict(self) -> Dict[str, Any]:
+        return asdict(self)
