@@ -145,16 +145,8 @@ def step(
     ] = None,
 ) -> Tuple[Tensor, Tensor, Tensor]:
 
-    x_data: Tensor
-    y_data: Tensor
-
-    if preprocessing is not None:
-        x_data, y_data = preprocessing(batch)
-    else:
-        x_data, y_data = batch
-
-    x_data = x_data.to(device)
-    y_data = y_data.to(device)
+    x_data, y_data = batch if preprocessing is None else preprocessing(batch)
+    x_data, y_data = x_data.to(device), y_data.to(device)
 
     factor = max(min(0.9, np.random.random()), 0.1)
     x_context, y_context, x_target, y_target = split_context_target(
@@ -163,13 +155,13 @@ def step(
 
     z, mu_D, logvar_D = model.encode(x_data, y_data)
     _, mu_C, logvar_C = model.encode(x_context, y_context)
-    mu, logvar = model.decode(z, x_target)
+    mu, logvar = model.decode(z, x_data)
 
     D_distro = Normal(mu_D, torch.exp(0.5 * logvar_D))  # type: ignore
     C_distro = Normal(mu_C, torch.exp(0.5 * logvar_C))  # type: ignore
     pred_distro = Normal(mu, torch.exp(0.5 * logvar))  # type: ignore
 
-    neg_log_like = -pred_distro.log_prob(y_target).mean(dim=0).sum()  # type: ignore
+    neg_log_like = -pred_distro.log_prob(y_data).mean(dim=0).sum()  # type: ignore
     kl_div = kl_divergence(D_distro, C_distro).mean(dim=0).sum()
     loss = neg_log_like + kl_div
 
