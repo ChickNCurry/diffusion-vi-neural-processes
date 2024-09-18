@@ -116,7 +116,7 @@ class Decoder(nn.Module):
         return mu, logvar
 
 
-class NeuralProcess(nn.Module):
+class LatentNeuralProcess(nn.Module):
     def __init__(
         self,
         x_dim: int,
@@ -125,7 +125,7 @@ class NeuralProcess(nn.Module):
         z_dim: int,
         h_dim: int,
     ) -> None:
-        super(NeuralProcess, self).__init__()
+        super(LatentNeuralProcess, self).__init__()
 
         self.set_encoder = SetEncoder(x_dim, y_dim, h_dim, r_dim)
         self.latent_encoder = LatentEncoder(r_dim, z_dim)

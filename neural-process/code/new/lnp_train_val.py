@@ -3,7 +3,7 @@ from typing import Callable, List, Optional, Tuple
 import numpy as np
 import torch
 import wandb
-from components import NeuralProcess
+from latent_neural_process import LatentNeuralProcess
 from torch import Tensor
 from torch.distributions import Normal
 from torch.distributions.kl import kl_divergence
@@ -13,7 +13,7 @@ from utils import DataModule, split_context_target
 
 
 def train_and_validate(
-    model: NeuralProcess,
+    model: LatentNeuralProcess,
     device: torch.device,
     data_module: DataModule,
     optimizer: Optimizer,
@@ -137,7 +137,7 @@ def train_and_validate(
 
 
 def step(
-    model: NeuralProcess,
+    model: LatentNeuralProcess,
     device: torch.device,
     batch: Tuple[Tensor, Tensor],
     preprocessing: Optional[
