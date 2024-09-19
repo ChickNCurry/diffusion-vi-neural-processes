@@ -31,30 +31,51 @@ class DeterministicEncoder(nn.Module):
 
         if self.is_attentive:
             self.self_attn = nn.MultiheadAttention(h_dim, 1, batch_first=True)
+            self.mlp_x_target = nn.Sequential(
+                nn.Linear(x_dim, r_dim), nn.SiLU(), nn.Linear(r_dim, r_dim)
+            )
+            self.mlp_x_context = nn.Sequential(
+                nn.Linear(x_dim, r_dim), nn.SiLU(), nn.Linear(r_dim, r_dim)
+            )
+            self.cross_attn = nn.MultiheadAttention(h_dim, 1, batch_first=True)
 
         self.proj_out = nn.Linear(h_dim, r_dim)
 
-    def forward(self, x_context: Tensor, y_context: Tensor) -> Tensor:
+    def forward(self, x_context: Tensor, y_context: Tensor, x_target: Tensor) -> Tensor:
         # (batch_size, context_size, x_dim)
         # (batch_size, context_size, y_dim)
+        # (batch_size, target_size, x_dim)
 
         context = torch.cat([x_context, y_context], dim=-1)
         # -> (batch_size, context_size, x_dim + y_dim)
 
         context = self.proj_in(context)
         context = self.mlp(context)
-        # -> (batch_size, context_size, r_dim)
+        # -> (batch_size, context_size, h_dim)
 
         if self.is_attentive:
-            context = self.self_attn(context, context, context, need_weights=False)
-            # -> (batch_size, context_size, r_dim)
+            context, _ = self.self_attn(context, context, context, need_weights=False)
+            # -> (batch_size, context_size, h_dim)
 
         r: Tensor = self.proj_out(context)
         # -> (batch_size, context_size, r_dim)
 
         if self.is_attentive:
+            x_target = self.mlp_x_target(x_target)
+            # -> (batch_size, target_size, r_dim)
+
+            x_context = self.mlp_x_context(x_context)
+            # -> (batch_size, context_size, r_dim)
+
+            r, _ = self.cross_attn(x_target, x_context, r, need_weights=False)
+            # -> (batch_size, target_size, r_dim)
+
+        else:
             r = torch.mean(r, dim=1)
             # -> (batch_size, r_dim)
+
+            r = r.unsqueeze(1).repeat(1, x_target.shape[1], 1)
+            # -> (batch_size, target_size, r_dim)
 
         return r
 
@@ -99,10 +120,11 @@ class LatentEncoder(nn.Module):
         return z, z_std
 
     def forward(
-        self, x_context: Tensor, y_context: Tensor
+        self, x_context: Tensor, y_context: Tensor, x_target: Tensor
     ) -> Tuple[Tensor, Tensor, Tensor]:
         # (batch_size, context_size, x_dim)
         # (batch_size, context_size, y_dim)
+        # (batch_size, target_size, x_dim)
 
         context = torch.cat([x_context, y_context], dim=-1)
         # -> (batch_size, context_size, x_dim + y_dim)
@@ -112,7 +134,7 @@ class LatentEncoder(nn.Module):
         # -> (batch_size, context_size, h_dim)
 
         if self.is_attentive:
-            context = self.self_attn(context, context, context, need_weights=False)
+            context, _ = self.self_attn(context, context, context, need_weights=False)
             # -> (batch_size, context_size, h_dim)
 
         s = torch.mean(context, dim=1)
@@ -122,6 +144,9 @@ class LatentEncoder(nn.Module):
         z_w = self.proj_z_w(s)
         z, z_std = self.reparameterize(z_mu, z_w)
         # -> (batch_size, z_dim)
+
+        z = z.unsqueeze(1).repeat(1, x_target.shape[1], 1)
+        # -> (batch_size, target_size, z_dim)
 
         return z, z_mu, z_std
 
@@ -134,11 +159,8 @@ class Decoder(nn.Module):
         z_dim: int,
         h_dim: int,
         y_dim: int,
-        is_attentive: bool = False,
     ) -> None:
         super(Decoder, self).__init__()
-
-        self.is_attentive = is_attentive
 
         self.proj_in = nn.Linear(x_dim + r_dim + z_dim, h_dim)
 
@@ -174,15 +196,8 @@ class Decoder(nn.Module):
         self, x_target: Tensor, r: Tensor, z: Tensor
     ) -> Tuple[Tensor, Tensor, Tensor]:
         # (batch_size, target_size, x_dim)
-        # (batch_size, target_size,r_dim) if is_attentive else (batch_size, r_dim)
-        # (batch_size, z_dim)
-
-        if not self.is_attentive:
-            r = r.unsqueeze(1).repeat(1, x_target.shape[1], 1)
-            # -> (batch_size, target_size, r_dim)
-
-        z = z.unsqueeze(1).repeat(1, x_target.shape[1], 1)
-        # -> (batch_size, target_size, z_dim)
+        # (batch_size, target_size, r_dim)
+        # (batch_size, target_size, z_dim)
 
         concatted = torch.cat([x_target, r, z], dim=-1)
         # -> (batch_size, target_size, r_dim + z_dim + x_dim)
@@ -211,29 +226,23 @@ class NeuralProcess(nn.Module):
     ) -> None:
         super(NeuralProcess, self).__init__()
 
-        self.is_attentive = is_attentive
-
         self.deterministic_encoder = DeterministicEncoder(
             x_dim, y_dim, h_dim, r_dim, is_attentive
         )
         self.latent_encoder = LatentEncoder(x_dim, y_dim, h_dim, z_dim, is_attentive)
-
-        if self.is_attentive:
-            self.cross_attn = nn.MultiheadAttention(h_dim, 1, batch_first=True)
-
-        self.decoder = Decoder(x_dim, r_dim, z_dim, h_dim, y_dim, is_attentive)
+        self.decoder = Decoder(x_dim, r_dim, z_dim, h_dim, y_dim)
 
     def encode(
-        self, x_context: Tensor, y_context: Tensor
+        self, x_context: Tensor, y_context: Tensor, x_target: Tensor
     ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         # (batch_size, context_size, x_dim)
         # (batch_size, context_size, y_dim)
 
-        r = self.deterministic_encoder(x_context, y_context)
-        # -> (batch_size, r_dim)
+        r = self.deterministic_encoder(x_context, y_context, x_target)
+        # -> (batch_size, target_size, r_dim)
 
-        z, z_mu, z_std = self.latent_encoder(x_context, y_context)
-        # -> (batch_size, z_dim)
+        z, z_mu, z_std = self.latent_encoder(x_context, y_context, x_target)
+        # -> (batch_size, target_size, z_dim)
 
         return r, z, z_mu, z_std
 
@@ -241,8 +250,8 @@ class NeuralProcess(nn.Module):
         self, x_target: Tensor, r: Tensor, z: Tensor
     ) -> Tuple[Tensor, Tensor, Tensor]:
         # (batch_size, target_size, x_dim)
-        # (batch_size, r_dim)
-        # (batch_size, z_dim)
+        # (batch_size, target_size, r_dim)
+        # (batch_size, target_size, z_dim)
 
         y, y_mu, y_std = self.decoder(x_target, r, z)
         # -> (batch_size, target_size, y_dim)
@@ -256,13 +265,9 @@ class NeuralProcess(nn.Module):
         # (batch_size, context_size, y_dim)
         # (batch_size, target_size, x_dim)
 
-        r, z, _, _ = self.encode(x_context, y_context)
-        # -> (batch_size, context_size, r_dim) if is_attentive else (batch_size, r_dim)
-        # -> (batch_size, z_dim)
-
-        if self.is_attentive:
-            r = self.cross_attn(x_target, x_context, r, need_weights=False)
-            # -> (batch_size, target_size, r_dim)
+        r, z, _, _ = self.encode(x_context, y_context, x_target)
+        # -> (batch_size, target_size, r_dim)
+        # -> (batch_size, target_size, z_dim)
 
         y, y_mu, y_std = self.decode(x_target, r, z)
         # -> (batch_size, target_size, y_dim)

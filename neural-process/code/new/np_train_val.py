@@ -158,8 +158,8 @@ def step(
         x_data, y_data, factor
     )
 
-    r, z, z_mu_D, z_std_D = model.encode(x_data, y_data)
-    _, _, z_mu_C, z_std_C = model.encode(x_context, y_context)
+    r, z, z_mu_D, z_std_D = model.encode(x_data, y_data, x_data)
+    _, _, z_mu_C, z_std_C = model.encode(x_context, y_context, x_data)
     y, y_mu, y_std = model.decode(x_data, r, z)
 
     z_distro_D = Normal(z_mu_D, z_std_D)  # type: ignore

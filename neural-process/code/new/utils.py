@@ -153,6 +153,7 @@ class Config:
     batch_size: int
     num_epochs: int
     learning_rate: float
+    is_attentive: bool
 
     def asdict(self) -> Dict[str, Any]:
         return asdict(self)
