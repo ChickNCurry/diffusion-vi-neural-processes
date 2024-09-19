@@ -119,12 +119,11 @@ class LatentEncoder(nn.Module):
 
         return z, z_std
 
-    def forward(
-        self, x_context: Tensor, y_context: Tensor, x_target: Tensor
-    ) -> Tuple[Tensor, Tensor, Tensor]:
+    def get_z_mu_and_z_w(
+        self, x_context: Tensor, y_context: Tensor
+    ) -> Tuple[Tensor, Tensor]:
         # (batch_size, context_size, x_dim)
         # (batch_size, context_size, y_dim)
-        # (batch_size, target_size, x_dim)
 
         context = torch.cat([x_context, y_context], dim=-1)
         # -> (batch_size, context_size, x_dim + y_dim)
@@ -142,11 +141,51 @@ class LatentEncoder(nn.Module):
 
         z_mu = self.proj_z_mu(s)
         z_w = self.proj_z_w(s)
+        # -> (batch_size, z_dim)
+
+        return z_mu, z_w
+
+    def forward(
+        self, x_context: Tensor, y_context: Tensor, x_target: Tensor
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+        # (batch_size, context_size, x_dim)
+        # (batch_size, context_size, y_dim)
+        # (batch_size, target_size, x_dim)
+
+        z_mu, z_w = self.get_z_mu_and_z_w(x_context, y_context)
         z, z_std = self.reparameterize(z_mu, z_w)
         # -> (batch_size, z_dim)
 
         z = z.unsqueeze(1).repeat(1, x_target.shape[1], 1)
         # -> (batch_size, target_size, z_dim)
+
+        return z, z_mu, z_std
+
+    def sample(
+        self, x_context: Tensor, y_context: Tensor, x_target: Tensor, num_samples: int
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+        # (1, context_size, x_dim)
+        # (1, context_size, y_dim)
+        # (1, target_size, x_dim)
+
+        z_mu, z_w = self.get_z_mu_and_z_w(x_context, y_context)
+        # -> (1, z_dim)
+
+        z_samples = []
+        z_std_samples = []
+
+        for _ in range(num_samples):
+            z, z_std = self.reparameterize(z_mu, z_w)
+            # -> (1, z_dim)
+
+            z_samples.append(z)
+            z_std_samples.append(z_std)
+
+        z, z_std = torch.cat(z_samples, dim=0), torch.cat(z_std_samples, dim=0)
+        # -> (num_samples, z_dim)
+
+        z = z.unsqueeze(1).repeat(1, x_target.shape[1], 1)
+        # -> (num_samples, target_size, z_dim)
 
         return z, z_mu, z_std
 
@@ -271,5 +310,31 @@ class NeuralProcess(nn.Module):
 
         y, y_mu, y_std = self.decode(x_target, r, z)
         # -> (batch_size, target_size, y_dim)
+
+        return y, y_mu, y_std
+
+    def sample(
+        self, x_context: Tensor, y_context: Tensor, x_target: Tensor, num_samples: int
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+        # (1, context_size, x_dim)
+        # (1, context_size, y_dim)
+        # (1, target_size, x_dim)
+
+        r = self.deterministic_encoder(x_context, y_context, x_target)
+        # -> (1, target_size, r_dim)
+
+        r = r.repeat(num_samples, 1, 1)
+        # -> (num_samples, target_size, r_dim)
+
+        z, _, _ = self.latent_encoder.sample(
+            x_context, y_context, x_target, num_samples
+        )
+        # -> (num_samples, target_size, z_dim)
+
+        x_target = x_target.repeat(num_samples, 1, 1)
+        # -> (num_samples, target_size, x_dim)
+
+        y, y_mu, y_std = self.decoder(x_target, r, z)
+        # -> (num_samples, target_size, y_dim)
 
         return y, y_mu, y_std
