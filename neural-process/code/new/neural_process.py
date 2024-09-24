@@ -7,7 +7,14 @@ from torch import Tensor
 
 class DeterministicEncoder(nn.Module):
     def __init__(
-        self, x_dim: int, y_dim: int, h_dim: int, r_dim: int, is_attentive: bool = False
+        self,
+        x_dim: int,
+        y_dim: int,
+        h_dim: int,
+        r_dim: int,
+        num_layers: int,
+        non_lin: str,
+        is_attentive: bool,
     ) -> None:
         super(DeterministicEncoder, self).__init__()
 
@@ -16,27 +23,25 @@ class DeterministicEncoder(nn.Module):
         self.proj_in = nn.Linear(x_dim + y_dim, h_dim)
 
         self.mlp = nn.Sequential(
-            nn.Linear(h_dim, h_dim),
-            nn.SiLU(),
-            nn.Linear(h_dim, h_dim),
-            nn.SiLU(),
-            nn.Linear(h_dim, h_dim),
-            nn.SiLU(),
-            nn.Linear(h_dim, h_dim),
-            nn.SiLU(),
-            nn.Linear(h_dim, h_dim),
-            nn.SiLU(),
-            nn.Linear(h_dim, h_dim),
+            *[
+                layer
+                for layer in (nn.Linear(h_dim, h_dim), getattr(nn, non_lin)())
+                for _ in range(num_layers - 1)
+            ],
+            nn.Linear(h_dim, h_dim)
         )
 
         if self.is_attentive:
             self.self_attn = nn.MultiheadAttention(h_dim, 1, batch_first=True)
+
             self.mlp_x_target = nn.Sequential(
                 nn.Linear(x_dim, r_dim), nn.SiLU(), nn.Linear(r_dim, r_dim)
             )
+
             self.mlp_x_context = nn.Sequential(
                 nn.Linear(x_dim, r_dim), nn.SiLU(), nn.Linear(r_dim, r_dim)
             )
+
             self.cross_attn = nn.MultiheadAttention(h_dim, 1, batch_first=True)
 
         self.proj_out = nn.Linear(h_dim, r_dim)
@@ -82,7 +87,14 @@ class DeterministicEncoder(nn.Module):
 
 class LatentEncoder(nn.Module):
     def __init__(
-        self, x_dim: int, y_dim: int, h_dim: int, z_dim: int, is_attentive: bool = False
+        self,
+        x_dim: int,
+        y_dim: int,
+        h_dim: int,
+        z_dim: int,
+        num_layers: int,
+        non_lin: str,
+        is_attentive: bool,
     ) -> None:
         super(LatentEncoder, self).__init__()
 
@@ -91,11 +103,12 @@ class LatentEncoder(nn.Module):
         self.proj_in = nn.Linear(x_dim + y_dim, h_dim)
 
         self.mlp = nn.Sequential(
-            nn.Linear(h_dim, h_dim),
-            nn.SiLU(),
-            nn.Linear(h_dim, h_dim),
-            nn.SiLU(),
-            nn.Linear(h_dim, h_dim),
+            *[
+                layer
+                for layer in (nn.Linear(h_dim, h_dim), getattr(nn, non_lin)())
+                for _ in range(num_layers - 1)
+            ],
+            nn.Linear(h_dim, h_dim)
         )
 
         if self.is_attentive:
@@ -198,19 +211,20 @@ class Decoder(nn.Module):
         z_dim: int,
         h_dim: int,
         y_dim: int,
+        num_layers: int,
+        non_lin: str,
     ) -> None:
         super(Decoder, self).__init__()
 
         self.proj_in = nn.Linear(x_dim + r_dim + z_dim, h_dim)
 
         self.mlp = nn.Sequential(
-            nn.Linear(h_dim, h_dim),
-            nn.SiLU(),
-            nn.Linear(h_dim, h_dim),
-            nn.SiLU(),
-            nn.Linear(h_dim, h_dim),
-            nn.SiLU(),
-            nn.Linear(h_dim, h_dim),
+            *[
+                layer
+                for layer in (nn.Linear(h_dim, h_dim), getattr(nn, non_lin)())
+                for _ in range(num_layers - 1)
+            ],
+            nn.Linear(h_dim, h_dim)
         )
 
         self.proj_y_mu = nn.Linear(h_dim, y_dim)
@@ -261,15 +275,23 @@ class NeuralProcess(nn.Module):
         r_dim: int,
         z_dim: int,
         h_dim: int,
+        num_layers_det_enc: int,
+        num_layers_lat_enc: int,
+        num_layers_dec: int,
+        non_lin: str,
         is_attentive: bool = False,
     ) -> None:
         super(NeuralProcess, self).__init__()
 
         self.deterministic_encoder = DeterministicEncoder(
-            x_dim, y_dim, h_dim, r_dim, is_attentive
+            x_dim, y_dim, h_dim, r_dim, num_layers_det_enc, non_lin, is_attentive
         )
-        self.latent_encoder = LatentEncoder(x_dim, y_dim, h_dim, z_dim, is_attentive)
-        self.decoder = Decoder(x_dim, r_dim, z_dim, h_dim, y_dim)
+        self.latent_encoder = LatentEncoder(
+            x_dim, y_dim, h_dim, z_dim, num_layers_lat_enc, non_lin, is_attentive
+        )
+        self.decoder = Decoder(
+            x_dim, r_dim, z_dim, h_dim, y_dim, num_layers_dec, non_lin
+        )
 
     def encode(
         self, x_context: Tensor, y_context: Tensor, x_target: Tensor

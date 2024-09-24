@@ -18,10 +18,10 @@ def train_and_validate(
     data_module: DataModule,
     optimizer: Optimizer,
     num_epochs: int,
+    wandb_logging: bool = True,
     preprocessing: Optional[
         Callable[[Tuple[Tensor, Tensor]], Tuple[Tensor, Tensor]]
     ] = None,
-    wandb_logging: bool = True,
 ) -> Tuple[
     List[float],
     List[float],
@@ -69,8 +69,8 @@ def train_and_validate(
                 if wandb_logging:
                     wandb.log(
                         {
-                            "train_neg_log_like": neg_log_like.item(),
-                            "train_kl_div": kl_div.item(),
+                            "train/neg_log_like": neg_log_like.item(),
+                            "train/kl_div": kl_div.item(),
                         }
                     )
 
@@ -79,14 +79,6 @@ def train_and_validate(
 
             avg_train_neg_log_likes.append(avg_train_neg_log_like)
             avg_train_kl_divs.append(avg_train_kl_div)
-
-            if wandb_logging:
-                wandb.log(
-                    {
-                        "avg_train_neg_log_like": avg_train_neg_log_like,
-                        "avg_train_kl_div": avg_train_kl_div,
-                    }
-                )
 
         model.eval()
         with torch.no_grad():
@@ -114,8 +106,8 @@ def train_and_validate(
                 if wandb_logging:
                     wandb.log(
                         {
-                            "val_neg_log_like": neg_log_like.item(),
-                            "val_kl_div": kl_div.item(),
+                            "val/neg_log_like": neg_log_like.item(),
+                            "val/kl_div": kl_div.item(),
                         }
                     )
 
@@ -124,14 +116,6 @@ def train_and_validate(
 
             avg_val_neg_log_likes.append(avg_val_neg_log_like)
             avg_val_kl_divs.append(avg_val_kl_div)
-
-            if wandb_logging:
-                wandb.log(
-                    {
-                        "avg_val_neg_log_like": avg_val_neg_log_like,
-                        "avg_val_kl_div": avg_val_kl_div,
-                    }
-                )
 
     return (
         avg_train_neg_log_likes,

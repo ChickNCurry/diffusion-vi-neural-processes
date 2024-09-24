@@ -27,6 +27,7 @@ class DataModule:
     def __init__(
         self,
         batch_size: int,
+        num_workers: int = 8,
         dataset_and_split: Optional[
             Tuple[Dataset[Tuple[Tensor, Tensor]], Tuple[float, float]]
         ] = None,
@@ -37,6 +38,7 @@ class DataModule:
         super().__init__()
 
         self.batch_size = batch_size
+        self.num_workers = num_workers
         self.train_set: Dataset[Tuple[Tensor, Tensor]]
         self.val_set: Dataset[Tuple[Tensor, Tensor]]
 
@@ -47,6 +49,7 @@ class DataModule:
 
         elif train_and_val_set is not None:
             self.train_set, self.val_set = train_and_val_set
+
         else:
             raise ValueError("Invalid dataset or split.")
 
@@ -55,7 +58,7 @@ class DataModule:
             self.train_set,
             batch_size=self.batch_size,
             shuffle=True,
-            num_workers=15,
+            num_workers=self.num_workers,
         )
 
     def val_dataloader(self) -> DataLoader[Tuple[Tensor, Tensor]]:
@@ -63,24 +66,34 @@ class DataModule:
             self.val_set,
             batch_size=self.batch_size,
             shuffle=False,
-            num_workers=15,
+            num_workers=self.num_workers,
         )
 
 
 def split_context_target(
-    x_data: Tensor, y_data: Tensor, factor: float, random: bool = False
+    x_data: Tensor,
+    y_data: Tensor,
+    context_len: Optional[int] = None,
+    context_factor: Optional[float] = None,
+    random: bool = False,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
-    # (batch_size, seq_length, x_dim), (batch_size, seq_length, y_dim)
+    # (batch_size, data_len, x_dim), (batch_size, data_len, y_dim)
 
     assert x_data.shape[1] == y_data.shape[1]
-    assert factor > 0 and factor < 1
 
-    context_len = int(x_data.shape[1] * factor)
-    shuffled_indices = (
+    if context_len is not None and context_factor is None:
+        assert 0 < context_len < x_data.shape[1]
+
+    if context_len is None and context_factor is not None:
+        assert 0 < context_factor < 1
+        context_len = int(x_data.shape[1] * context_factor)
+
+    indices = (
         torch.randperm(x_data.shape[1]) if random else torch.arange(x_data.shape[1])
     )
-    context_indices = shuffled_indices[:context_len]
-    target_indices = shuffled_indices[context_len:]
+
+    context_indices = indices[:context_len]
+    target_indices = indices[context_len:]
 
     x_context = x_data[:, context_indices, :]
     y_context = y_data[:, context_indices, :]
@@ -136,24 +149,52 @@ def x_y_to_img(x_data: Tensor, y_data: Tensor) -> Tensor:
 
 
 @dataclass
-class Config:
-    task: str
+class ModelConfig:
+    x_dim: int
+    y_dim: int
+    r_dim: int
+    z_dim: int
+    h_dim: int
+    num_layers_det_enc: int
+    num_layers_lat_enc: int
+    num_layers_dec: int
+    non_lin: str
+    is_attentive: bool
+
+    def asdict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class DataConfig:
+    benchmark: str
     n_task: int
     n_datapoints_per_task: int
     output_noise: float
     seed_task: int
     seed_x: int
     seed_noise: int
-    x_dim: int
-    y_dim: int
-    r_dim: int
-    z_dim: int
-    h_dim: int
-    split: Tuple[float, float]
-    batch_size: int
+
+    def asdict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class TrainValConfig:
     num_epochs: int
+    batch_size: int
     learning_rate: float
-    is_attentive: bool
+    split: Tuple[float, float]
+
+    def asdict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class Config:
+    data_config: DataConfig
+    model_config: ModelConfig
+    train_val_config: TrainValConfig
 
     def asdict(self) -> Dict[str, Any]:
         return asdict(self)
