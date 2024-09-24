@@ -22,12 +22,7 @@ def train_and_validate(
     preprocessing: Optional[
         Callable[[Tuple[Tensor, Tensor]], Tuple[Tensor, Tensor]]
     ] = None,
-) -> Tuple[
-    List[float],
-    List[float],
-    List[float],
-    List[float],
-]:
+) -> Tuple[List[float], List[float], List[float], List[float]]:
 
     # torch.autograd.set_detect_anomaly(True)
 
@@ -137,14 +132,15 @@ def step(
     x_data, y_data = batch if preprocessing is None else preprocessing(batch)
     x_data, y_data = x_data.to(device), y_data.to(device)
 
-    factor = max(min(0.9, np.random.random()), 0.1)
-    x_context, y_context, x_target, y_target = split_context_target(
-        x_data, y_data, factor
+    # context_factor = max(min(0.9, np.random.random()), 0.1)
+    context_len = int(
+        max(1, min(x_data.shape[1], np.random.random() * x_data.shape[1]))
     )
+    x_context, y_context, _, _ = split_context_target(x_data, y_data, context_len)
 
     r, z, z_mu_D, z_std_D = model.encode(x_data, y_data, x_data)
     _, _, z_mu_C, z_std_C = model.encode(x_context, y_context, x_data)
-    y, y_mu, y_std = model.decode(x_data, r, z)
+    _, y_mu, y_std = model.decode(x_data, r, z)
 
     z_distro_D = Normal(z_mu_D, z_std_D)  # type: ignore
     z_distro_C = Normal(z_mu_C, z_std_C)  # type: ignore
