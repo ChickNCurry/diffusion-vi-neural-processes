@@ -158,8 +158,9 @@ class ModelConfig:
     num_layers_det_enc: int
     num_layers_lat_enc: int
     num_layers_dec: int
-    non_lin: str
+    non_linearity: str
     is_attentive: bool
+    has_parallel_paths: bool
 
     def asdict(self) -> Dict[str, Any]:
         return asdict(self)

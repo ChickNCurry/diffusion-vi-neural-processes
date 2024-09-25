@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -13,7 +13,7 @@ class DeterministicEncoder(nn.Module):
         h_dim: int,
         r_dim: int,
         num_layers: int,
-        non_lin: str,
+        non_linearity: str,
         is_attentive: bool,
     ) -> None:
         super(DeterministicEncoder, self).__init__()
@@ -25,7 +25,7 @@ class DeterministicEncoder(nn.Module):
         self.mlp = nn.Sequential(
             *[
                 layer
-                for layer in (nn.Linear(h_dim, h_dim), getattr(nn, non_lin)())
+                for layer in (nn.Linear(h_dim, h_dim), getattr(nn, non_linearity)())
                 for _ in range(num_layers - 1)
             ],
             nn.Linear(h_dim, h_dim)
@@ -93,7 +93,7 @@ class LatentEncoder(nn.Module):
         h_dim: int,
         z_dim: int,
         num_layers: int,
-        non_lin: str,
+        non_linearity: str,
         is_attentive: bool,
     ) -> None:
         super(LatentEncoder, self).__init__()
@@ -105,7 +105,7 @@ class LatentEncoder(nn.Module):
         self.mlp = nn.Sequential(
             *[
                 layer
-                for layer in (nn.Linear(h_dim, h_dim), getattr(nn, non_lin)())
+                for layer in (nn.Linear(h_dim, h_dim), getattr(nn, non_linearity)())
                 for _ in range(num_layers - 1)
             ],
             nn.Linear(h_dim, h_dim)
@@ -121,7 +121,7 @@ class LatentEncoder(nn.Module):
         # (batch_size, z_dim)
         # (batch_size, z_dim)
 
-        z_std = 0.1 + 0.9 * torch.sigmoid(z_w)
+        z_std = nn.Softplus()(z_w)  # 0.1 + 0.9 * torch.sigmoid(z_w)
         # -> (batch_size, z_dim)
 
         eps = torch.randn_like(z_std)
@@ -212,16 +212,22 @@ class Decoder(nn.Module):
         h_dim: int,
         y_dim: int,
         num_layers: int,
-        non_lin: str,
+        non_linearity: str,
+        has_parallel_paths: bool,
     ) -> None:
         super(Decoder, self).__init__()
 
-        self.proj_in = nn.Linear(x_dim + r_dim + z_dim, h_dim)
+        self.has_parallel_paths = has_parallel_paths
+
+        if self.has_parallel_paths:
+            self.proj_in = nn.Linear(x_dim + r_dim + z_dim, h_dim)
+        else:
+            self.proj_in = nn.Linear(x_dim + z_dim, h_dim)
 
         self.mlp = nn.Sequential(
             *[
                 layer
-                for layer in (nn.Linear(h_dim, h_dim), getattr(nn, non_lin)())
+                for layer in (nn.Linear(h_dim, h_dim), getattr(nn, non_linearity)())
                 for _ in range(num_layers - 1)
             ],
             nn.Linear(h_dim, h_dim)
@@ -234,7 +240,7 @@ class Decoder(nn.Module):
         # (batch_size, y_dim)
         # (batch_size, y_dim)
 
-        y_std = 0.1 + 0.9 * nn.Softplus()(y_w)
+        y_std = nn.Softplus()(y_w)  # 0.1 + 0.9 * nn.Softplus()(y_w)
         # -> (batch_size, y_dim)
 
         eps = torch.randn_like(y_std)
@@ -246,14 +252,18 @@ class Decoder(nn.Module):
         return y, y_std
 
     def forward(
-        self, x_target: Tensor, r: Tensor, z: Tensor
+        self, x_target: Tensor, r: Optional[Tensor], z: Tensor
     ) -> Tuple[Tensor, Tensor, Tensor]:
         # (batch_size, target_size, x_dim)
-        # (batch_size, target_size, r_dim)
         # (batch_size, target_size, z_dim)
+        # (batch_size, target_size, r_dim)
 
-        concatted = torch.cat([x_target, r, z], dim=-1)
-        # -> (batch_size, target_size, r_dim + z_dim + x_dim)
+        if self.has_parallel_paths and r is not None:
+            concatted = torch.cat([x_target, r, z], dim=-1)
+            # -> (batch_size, target_size, r_dim + z_dim + x_dim)
+        else:
+            concatted = torch.cat([x_target, z], dim=-1)
+            # -> (batch_size, target_size, z_dim + x_dim)
 
         concatted = self.proj_in(concatted)
         concatted = self.mlp(concatted)
@@ -278,37 +288,59 @@ class NeuralProcess(nn.Module):
         num_layers_det_enc: int,
         num_layers_lat_enc: int,
         num_layers_dec: int,
-        non_lin: str,
-        is_attentive: bool = False,
+        non_linearity: str,
+        is_attentive: bool,
+        has_parallel_paths: bool,
     ) -> None:
         super(NeuralProcess, self).__init__()
 
-        self.deterministic_encoder = DeterministicEncoder(
-            x_dim, y_dim, h_dim, r_dim, num_layers_det_enc, non_lin, is_attentive
-        )
+        self.has_parallel_paths = has_parallel_paths
+
+        if self.has_parallel_paths:
+            self.deterministic_encoder = DeterministicEncoder(
+                x_dim,
+                y_dim,
+                h_dim,
+                r_dim,
+                num_layers_det_enc,
+                non_linearity,
+                is_attentive,
+            )
+
         self.latent_encoder = LatentEncoder(
-            x_dim, y_dim, h_dim, z_dim, num_layers_lat_enc, non_lin, is_attentive
+            x_dim, y_dim, h_dim, z_dim, num_layers_lat_enc, non_linearity, is_attentive
         )
+
         self.decoder = Decoder(
-            x_dim, r_dim, z_dim, h_dim, y_dim, num_layers_dec, non_lin
+            x_dim,
+            r_dim,
+            z_dim,
+            h_dim,
+            y_dim,
+            num_layers_dec,
+            non_linearity,
+            has_parallel_paths,
         )
 
     def encode(
         self, x_context: Tensor, y_context: Tensor, x_target: Tensor
-    ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+    ) -> Tuple[Optional[Tensor], Tensor, Tensor, Tensor]:
         # (batch_size, context_size, x_dim)
         # (batch_size, context_size, y_dim)
-
-        r = self.deterministic_encoder(x_context, y_context, x_target)
-        # -> (batch_size, target_size, r_dim)
 
         z, z_mu, z_std = self.latent_encoder(x_context, y_context, x_target)
         # -> (batch_size, target_size, z_dim)
 
+        if self.has_parallel_paths:
+            r = self.deterministic_encoder(x_context, y_context, x_target)
+            # -> (batch_size, target_size, r_dim)
+        else:
+            r = None
+
         return r, z, z_mu, z_std
 
     def decode(
-        self, x_target: Tensor, r: Tensor, z: Tensor
+        self, x_target: Tensor, r: Optional[Tensor], z: Tensor
     ) -> Tuple[Tensor, Tensor, Tensor]:
         # (batch_size, target_size, x_dim)
         # (batch_size, target_size, r_dim)
@@ -337,18 +369,21 @@ class NeuralProcess(nn.Module):
 
     def sample(
         self, x_context: Tensor, y_context: Tensor, x_target: Tensor, num_samples: int
-    ) -> Tuple[Tensor, Tensor, Tensor]:
+    ) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
         # (1, context_size, x_dim)
         # (1, context_size, y_dim)
         # (1, target_size, x_dim)
 
-        r = self.deterministic_encoder(x_context, y_context, x_target)
-        # -> (1, target_size, r_dim)
+        if self.has_parallel_paths:
+            r = self.deterministic_encoder(x_context, y_context, x_target)
+            # -> (1, target_size, r_dim)
 
-        r = r.repeat(num_samples, 1, 1)
-        # -> (num_samples, target_size, r_dim)
+            r = r.repeat(num_samples, 1, 1)
+            # -> (num_samples, target_size, r_dim)
+        else:
+            r = None
 
-        z, _, _ = self.latent_encoder.sample(
+        z, z_mu, z_std = self.latent_encoder.sample(
             x_context, y_context, x_target, num_samples
         )
         # -> (num_samples, target_size, z_dim)
@@ -359,4 +394,4 @@ class NeuralProcess(nn.Module):
         y, y_mu, y_std = self.decoder(x_target, r, z)
         # -> (num_samples, target_size, y_dim)
 
-        return y, y_mu, y_std
+        return y, y_mu, y_std, z, z_mu, z_std
