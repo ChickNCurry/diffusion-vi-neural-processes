@@ -114,6 +114,16 @@ class LatentEncoder(nn.Module):
         if self.is_attentive:
             self.self_attn = nn.MultiheadAttention(h_dim, 1, batch_first=True)
 
+            self.mlp_x_target = nn.Sequential(
+                nn.Linear(x_dim, h_dim), nn.SiLU(), nn.Linear(h_dim, h_dim)
+            )
+
+            self.mlp_x_context = nn.Sequential(
+                nn.Linear(x_dim, h_dim), nn.SiLU(), nn.Linear(h_dim, h_dim)
+            )
+
+            self.cross_attn = nn.MultiheadAttention(h_dim, 1, batch_first=True)
+
         self.proj_z_mu = nn.Linear(h_dim, z_dim)
         self.proj_z_w = nn.Linear(h_dim, z_dim)
 
@@ -133,28 +143,41 @@ class LatentEncoder(nn.Module):
         return z, z_std
 
     def get_z_mu_and_z_w(
-        self, x_context: Tensor, y_context: Tensor
+        self, x_context: Tensor, y_context: Tensor, x_target: Tensor
     ) -> Tuple[Tensor, Tensor]:
         # (batch_size, context_size, x_dim)
         # (batch_size, context_size, y_dim)
 
-        context = torch.cat([x_context, y_context], dim=-1)
+        s = torch.cat([x_context, y_context], dim=-1)
         # -> (batch_size, context_size, x_dim + y_dim)
 
-        context = self.proj_in(context)
-        context = self.mlp(context)
+        s = self.proj_in(s)
+        s = self.mlp(s)
         # -> (batch_size, context_size, h_dim)
 
         if self.is_attentive:
-            context, _ = self.self_attn(context, context, context, need_weights=False)
+            s, _ = self.self_attn(s, s, s, need_weights=False)
             # -> (batch_size, context_size, h_dim)
 
-        s = torch.mean(context, dim=1)
-        # -> (batch_size, h_dim)
+            x_target = self.mlp_x_target(x_target)
+            # -> (batch_size, target_size, h_dim)
+
+            x_context = self.mlp_x_context(x_context)
+            # -> (batch_size, context_size, h_dim)
+
+            s, _ = self.cross_attn(x_target, x_context, s, need_weights=False)
+            # -> (batch_size, target_size, h_dim)
+
+        else:
+            s = torch.mean(s, dim=1)
+            # -> (batch_size, h_dim)
+
+            s = s.unsqueeze(1).repeat(1, x_target.shape[1], 1)
+            # -> (batch_size, target_size, h_dim)
 
         z_mu = self.proj_z_mu(s)
         z_w = self.proj_z_w(s)
-        # -> (batch_size, z_dim)
+        # -> (batch_size, target_size, z_dim)
 
         return z_mu, z_w
 
@@ -165,11 +188,8 @@ class LatentEncoder(nn.Module):
         # (batch_size, context_size, y_dim)
         # (batch_size, target_size, x_dim)
 
-        z_mu, z_w = self.get_z_mu_and_z_w(x_context, y_context)
+        z_mu, z_w = self.get_z_mu_and_z_w(x_context, y_context, x_target)
         z, z_std = self.reparameterize(z_mu, z_w)
-        # -> (batch_size, z_dim)
-
-        z = z.unsqueeze(1).repeat(1, x_target.shape[1], 1)
         # -> (batch_size, target_size, z_dim)
 
         return z, z_mu, z_std
@@ -181,23 +201,20 @@ class LatentEncoder(nn.Module):
         # (1, context_size, y_dim)
         # (1, target_size, x_dim)
 
-        z_mu, z_w = self.get_z_mu_and_z_w(x_context, y_context)
-        # -> (1, z_dim)
+        z_mu, z_w = self.get_z_mu_and_z_w(x_context, y_context, x_target)
+        # -> (1, target_size, z_dim)
 
         z_samples = []
         z_std_samples = []
 
         for _ in range(num_samples):
             z, z_std = self.reparameterize(z_mu, z_w)
-            # -> (1, z_dim)
+            # -> (1, target_size, z_dim)
 
             z_samples.append(z)
             z_std_samples.append(z_std)
 
         z, z_std = torch.cat(z_samples, dim=0), torch.cat(z_std_samples, dim=0)
-        # -> (num_samples, z_dim)
-
-        z = z.unsqueeze(1).repeat(1, x_target.shape[1], 1)
         # -> (num_samples, target_size, z_dim)
 
         return z, z_mu, z_std
