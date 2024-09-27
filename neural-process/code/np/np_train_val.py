@@ -54,7 +54,7 @@ def train_and_validate(
                 loop.set_postfix(
                     epoch=epoch,
                     loss=loss.item(),
-                    recon_loss=neg_log_like.item(),
+                    neg_log_like=neg_log_like.item(),
                     kl_div=kl_div.item(),
                 )
 
@@ -94,7 +94,7 @@ def train_and_validate(
                 loop.set_postfix(
                     epoch=epoch,
                     loss=loss.item(),
-                    recon_loss=neg_log_like.item(),
+                    neg_log_like=neg_log_like.item(),
                     kl_div=kl_div.item(),
                 )
 
@@ -132,22 +132,16 @@ def step(
     x_data, y_data = batch if preprocessing is None else preprocessing(batch)
     x_data, y_data = x_data.to(device), y_data.to(device)
 
-    # context_factor = max(min(0.9, np.random.random()), 0.1)
-    context_len = int(
-        max(1, min(x_data.shape[1], np.random.random() * x_data.shape[1]))
-    )
+    context_len = int(max(1, np.random.random() * x_data.shape[1]))
     x_context, y_context, _, _ = split_context_target(x_data, y_data, context_len)
 
     r, z, z_mu_D, z_std_D = model.encode(x_data, y_data, x_data)
     _, _, z_mu_C, z_std_C = model.encode(x_context, y_context, x_data)
     _, y_mu, y_std = model.decode(x_data, r, z)
 
-    z_distro_D = Normal(z_mu_D, z_std_D)  # type: ignore
-    z_distro_C = Normal(z_mu_C, z_std_C)  # type: ignore
-    y_distro = Normal(y_mu, y_std)  # type: ignore
+    neg_log_like = -Normal(y_mu, y_std).log_prob(y_data).mean(dim=0).sum()  # type: ignore
+    kl_div = kl_divergence(Normal(z_mu_D, z_std_D), Normal(z_mu_C, z_std_C)).mean(dim=0).sum()  # type: ignore
 
-    neg_log_like = -y_distro.log_prob(y_data).mean(dim=0).sum()  # type: ignore
-    kl_div = kl_divergence(z_distro_D, z_distro_C).mean(dim=0).sum()
     loss = neg_log_like + kl_div
 
     return loss, neg_log_like, kl_div
