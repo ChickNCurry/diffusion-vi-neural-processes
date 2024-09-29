@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Tuple
 
 import torch
+from neural_process import NeuralProcess
 from torch import Tensor, nn
 
 
@@ -10,7 +11,9 @@ class DiffusionVariant(nn.Module, ABC):
         super(DiffusionVariant, self).__init__()
 
         self.num_steps = num_steps
-        self.delta_t = torch.tensor(1.0 / num_steps).to(device)
+        self.delta_t = (
+            torch.tensor(1.0 / num_steps).to(device) if num_steps > 0 else None
+        )
 
     @abstractmethod
     def forward_mean(self, z: Tensor, t: Tensor) -> Tensor:
@@ -68,6 +71,47 @@ class DiffusionVariant(nn.Module, ABC):
         # (batch_size, z_dim)
 
         return z_prev, z_mean, torch.sqrt(z_var)
+
+
+class DiffusionNeuralProcess(nn.Module):
+    def __init__(self, np_model: NeuralProcess, diffu_model: DiffusionVariant) -> None:
+        super(DiffusionNeuralProcess, self).__init__()
+
+        self.np_model = np_model
+        self.diffu_model = diffu_model
+
+    def forward(
+        self, x_context: Tensor, y_context: Tensor, x_target: Tensor
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+
+        r, z, _, _ = self.np_model.encode(x_context, y_context, x_target)
+
+        for t in range(self.diffu_model.num_steps):
+            z, _, _ = self.diffu_model.forward_transition(
+                z, torch.tensor([t]).to(x_context.device)
+            )
+
+        y, y_mu, y_std = self.np_model.decode(x_target, r, z)
+
+        return y, y_mu, y_std
+
+    def sample(
+        self, x_context: Tensor, y_context: Tensor, x_target: Tensor, num_samples: int
+    ) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+        x_context = x_context.repeat(num_samples, 1, 1)
+        y_context = y_context.repeat(num_samples, 1, 1)
+        x_target = x_target.repeat(num_samples, 1, 1)
+
+        r, z, z_mu, z_std = self.np_model.encode(x_context, y_context, x_target)
+
+        for t in range(self.diffu_model.num_steps):
+            z, z_mu, z_std = self.diffu_model.forward_transition(
+                z, torch.tensor([t]).to(x_context.device)
+            )
+
+        y, y_mu, y_std = self.np_model.decode(x_target, r, z)
+
+        return y, y_mu, y_std, z, z_mu, z_std
 
 
 class DDS(DiffusionVariant):

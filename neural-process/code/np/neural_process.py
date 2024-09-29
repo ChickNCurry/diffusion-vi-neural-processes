@@ -293,9 +293,9 @@ class NeuralProcess(nn.Module):
             has_deterministic_path,
         )
 
-    def forward(
+    def encode(
         self, x_context: Tensor, y_context: Tensor, x_target: Tensor
-    ) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+    ) -> Tuple[Optional[Tensor], Tensor, Tensor, Tensor]:
         # (batch_size, context_size, x_dim)
         # (batch_size, context_size, y_dim)
         # (batch_size, target_size, x_dim)
@@ -314,7 +314,31 @@ class NeuralProcess(nn.Module):
         )
         # -> (batch_size, target_size, r_dim)
 
+        return r, z, z_mu, z_std
+
+    def decode(
+        self, x_target: Tensor, r: Optional[Tensor], z: Optional[Tensor]
+    ) -> Tuple[Tensor, Tensor, Tensor]:
+        # (batch_size, target_size, x_dim)
+        # (batch_size, target_size, r_dim)
+        # (batch_size, z_dim)
+
         y, y_mu, y_std = self.decoder(x_target, r, z)
+        # -> (batch_size, target_size, y_dim)
+
+        return y, y_mu, y_std
+
+    def forward(
+        self, x_context: Tensor, y_context: Tensor, x_target: Tensor
+    ) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+        # (batch_size, context_size, x_dim)
+        # (batch_size, context_size, y_dim)
+        # (batch_size, target_size, x_dim)
+
+        r, z, z_mu, z_std = self.encode(x_context, y_context, x_target)
+        # -> (batch_size, target_size, r_dim), (batch_size, z_dim)
+
+        y, y_mu, y_std = self.decode(x_target, r, z)
         # -> (batch_size, target_size, y_dim)
 
         return y, y_mu, y_std, z, z_mu, z_std
