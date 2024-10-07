@@ -1,0 +1,45 @@
+from typing import List, Optional, Tuple
+
+import torch
+import torch.nn as nn
+from deterministic_encoder import DeterministicEncoder
+from latent_encoder import LatentEncoder
+from torch import Tensor
+
+
+class Encoder(nn.Module):
+    def __init__(
+        self,
+        deterministic_encoder: Optional[DeterministicEncoder],
+        latent_encoder: Optional[LatentEncoder],
+    ) -> None:
+        super(Encoder, self).__init__()
+
+        self.deterministic_encoder = deterministic_encoder
+        self.latent_encoder = latent_encoder
+
+        assert self.deterministic_encoder is not None or self.latent_encoder is not None
+
+    def forward(
+        self, x_context: Tensor, y_context: Tensor, x_target: Tensor
+    ) -> Tuple[Tensor, List[Tuple[Tensor, Tensor, Tensor]]]:
+        # (batch_size, context_size, x_dim)
+        # (batch_size, context_size, y_dim)
+        # (batch_size, target_size, x_dim)
+
+        if self.deterministic_encoder is not None:
+            r = self.deterministic_encoder(x_context, y_context, x_target)
+            # -> (batch_size, target_size, r_dim)
+
+        if self.latent_encoder is not None:
+            z_tuples = self.latent_encoder(x_context, y_context)
+            # -> (batch_size, z_dim)
+
+            z_repeated = z_tuples[-1][0].unsqueeze(1).repeat(1, x_target.shape[1], 1)
+            # -> (batch_size, target_size, z_dim)
+
+        tensors = [t for t in [x_target, r, z_repeated] if t is not None]
+        output = torch.cat(tensors, dim=-1)
+        # -> (batch_size, target_size, r_dim + z_dim + x_dim)
+
+        return output, z_tuples
