@@ -2,7 +2,6 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-from aggregation import Aggregation
 from torch import Tensor
 
 
@@ -16,12 +15,12 @@ class DeterministicEncoder(nn.Module):
         num_layers: int,
         non_linearity: str,
         is_attentive: bool,
-        aggregation: Optional[Aggregation],
+        aggregation: Optional[str],
     ) -> None:
         super(DeterministicEncoder, self).__init__()
 
         self.is_attentive = is_attentive
-        self.aggregation = aggregation
+        self.aggregation = getattr(torch, aggregation) if aggregation else None
 
         assert self.is_attentive == (self.aggregation is None)
 
@@ -82,7 +81,7 @@ class DeterministicEncoder(nn.Module):
             # -> (batch_size, target_size, r_dim)
 
         elif self.aggregation is not None:
-            r = self.aggregation.value(r, dim=1)
+            r = self.aggregation(r, dim=1)
             # -> (batch_size, r_dim)
 
             r = r.unsqueeze(1).repeat(1, x_target.shape[1], 1)

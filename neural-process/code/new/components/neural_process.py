@@ -2,6 +2,7 @@ from typing import List, Tuple
 
 from decoder import Decoder
 from encoder import Encoder
+from latent_encoder import z_tuple
 from torch import Tensor, nn
 
 
@@ -18,7 +19,7 @@ class NeuralProcess(nn.Module):
 
     def encode(
         self, x_context: Tensor, y_context: Tensor, x_target: Tensor
-    ) -> Tuple[Tensor, List[Tuple[Tensor, Tensor, Tensor]]]:
+    ) -> Tuple[Tensor, List[z_tuple]]:
         # (batch_size, context_size, x_dim)
         # (batch_size, context_size, y_dim)
         # (batch_size, target_size, x_dim)
@@ -39,7 +40,7 @@ class NeuralProcess(nn.Module):
 
     def forward(
         self, x_context: Tensor, y_context: Tensor, x_target: Tensor
-    ) -> Tuple[Tensor, Tensor, Tensor, List[Tuple[Tensor, Tensor, Tensor]]]:
+    ) -> Tuple[Tensor, Tensor, Tensor, List[z_tuple]]:
         # (batch_size, context_size, x_dim)
         # (batch_size, context_size, y_dim)
         # (batch_size, target_size, x_dim)
@@ -54,7 +55,7 @@ class NeuralProcess(nn.Module):
 
     def sample(
         self, x_context: Tensor, y_context: Tensor, x_target: Tensor, num_samples: int
-    ) -> Tuple[Tensor, Tensor, Tensor, List[Tuple[Tensor, Tensor, Tensor]]]:
+    ) -> Tuple[Tensor, Tensor, Tensor, List[z_tuple]]:
         # (1, context_size, x_dim)
         # (1, context_size, y_dim)
         # (1, target_size, x_dim)
