@@ -33,17 +33,17 @@ class Encoder(nn.Module):
 
         if self.deterministic_encoder is not None:
             r = self.deterministic_encoder(x_context, y_context, x_target)
-            # -> (batch_size, target_size, r_dim)
+            # (batch_size, target_size, r_dim)
 
         if self.latent_encoder is not None:
             z_tuples = self.latent_encoder(x_context, y_context)
-            # -> (batch_size, z_dim)
+            # (batch_size, z_dim)
 
             z_repeated = z_tuples[-1].z.unsqueeze(1).repeat(1, x_target.shape[1], 1)
-            # -> (batch_size, target_size, z_dim)
+            # (batch_size, target_size, z_dim)
 
         outputs = [t for t in [r, z_repeated] if t is not None]
         output = torch.cat(outputs, dim=-1)
-        # -> (batch_size, target_size, r_dim + z_dim)
+        # (batch_size, target_size, r_dim + z_dim)
 
         return output, z_tuples

@@ -32,13 +32,13 @@ class Decoder(nn.Module):
         # (batch_size, target_size, y_dim)
 
         y_std = 0.1 + 0.9 * nn.Softplus()(y_w)
-        # -> (batch_size, target_size, y_dim)
+        # (batch_size, target_size, y_dim)
 
         eps = torch.randn_like(y_std)
-        # -> (batch_size, target_size, y_dim)
+        # (batch_size, target_size, y_dim)
 
         y = y_mu + y_std * eps
-        # -> (batch_size, target_size, y_dim)
+        # (batch_size, target_size, y_dim)
 
         return y, y_std
 
@@ -47,13 +47,13 @@ class Decoder(nn.Module):
         # (batch_size, target_size, input_dim)
 
         h = torch.cat([x_target, input], dim=-1)
-        # -> (batch_size, target_size, input_dim + x_dim)
+        # (batch_size, target_size, input_dim + x_dim)
 
         h = self.mlp(h)
-        # -> (batch_size, target_size, h_dim)
+        # (batch_size, target_size, h_dim)
 
         y_mu, y_w = self.proj_y_mu(h), self.proj_y_w(h)
         y, y_std = self.reparameterize(y_mu, y_w)
-        # -> (batch_size, target_size, y_dim)
+        # (batch_size, target_size, y_dim)
 
         return y, y_mu, y_std

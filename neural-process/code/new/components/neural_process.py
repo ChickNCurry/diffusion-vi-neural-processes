@@ -25,7 +25,7 @@ class NeuralProcess(nn.Module):
         # (batch_size, target_size, x_dim)
 
         output, z_tuples = self.encoder(x_context, y_context, x_target)
-        # -> (batch_size, target_size, r_dim + z_dim + x_dim), (batch_size, z_dim)
+        # (batch_size, target_size, r_dim + z_dim + x_dim), (batch_size, z_dim)
 
         return output, z_tuples
 
@@ -34,7 +34,7 @@ class NeuralProcess(nn.Module):
         # (batch_size, z_dim)
 
         y, y_mu, y_std = self.decoder(x_target, input)
-        # -> (batch_size, target_size, y_dim)
+        # (batch_size, target_size, y_dim)
 
         return y, y_mu, y_std
 
@@ -46,10 +46,10 @@ class NeuralProcess(nn.Module):
         # (batch_size, target_size, x_dim)
 
         output, z_tuples = self.encode(x_context, y_context, x_target)
-        # -> (batch_size, target_size, r_dim + z_dim + x_dim), (batch_size, z_dim)
+        # (batch_size, target_size, r_dim + z_dim + x_dim), (batch_size, z_dim)
 
         y, y_mu, y_std = self.decode(x_target, output)
-        # -> (batch_size, target_size, y_dim)
+        # (batch_size, target_size, y_dim)
 
         return y, y_mu, y_std, z_tuples
 
@@ -61,15 +61,13 @@ class NeuralProcess(nn.Module):
         # (1, target_size, x_dim)
 
         x_context = x_context.repeat(num_samples, 1, 1)
-        # -> (num_samples, context_size, x_dim)
-
         y_context = y_context.repeat(num_samples, 1, 1)
-        # -> (num_samples, context_size, y_dim)
-
         x_target = x_target.repeat(num_samples, 1, 1)
-        # -> (num_samples, target_size, x_dim)
+        # (num_samples, context_size, x_dim),
+        # (num_samples, context_size, y_dim),
+        # (num_samples, target_size, x_dim)
 
         y, y_mu, y_std, z_tuples = self.forward(x_context, y_context, x_target)
-        # -> (num_samples, target_size, y_dim), (num_samples, z_dim)
+        # (num_samples, target_size, y_dim), (num_samples, z_dim)
 
         return y, y_mu, y_std, z_tuples

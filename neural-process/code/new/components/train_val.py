@@ -80,8 +80,17 @@ def train_and_validate(
                             "train/loss": log_like.item()
                             + priors_kl.item()
                             + diffu_kl.item(),
+                            "train/sigma_0": neural_process.encoder.latent_encoder.diffusion_process.sigmas[
+                                0
+                            ].item(),
                         }
                     )
+
+                print(
+                    neural_process.encoder.latent_encoder.diffusion_process.sigmas[0][
+                        0
+                    ].item()
+                )
 
             avg_train_log_like = float(np.mean(train_log_likes))
             avg_train_priors_kl = float(np.mean(train_priors_kls))

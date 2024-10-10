@@ -58,33 +58,33 @@ class DeterministicEncoder(nn.Module):
         # (batch_size, target_size, x_dim)
 
         h = torch.cat([x_context, y_context], dim=-1)
-        # -> (batch_size, context_size, x_dim + y_dim)
+        # (batch_size, context_size, x_dim + y_dim)
 
         h = self.mlp(h)
-        # -> (batch_size, context_size, h_dim)
+        # (batch_size, context_size, h_dim)
 
         if self.is_attentive:
             h, _ = self.self_attn(h, h, h, need_weights=False)
-            # -> (batch_size, context_size, h_dim)
+            # (batch_size, context_size, h_dim)
 
         r: Tensor = self.proj_r(h)
-        # -> (batch_size, context_size, r_dim)
+        # (batch_size, context_size, r_dim)
 
         if self.is_attentive:
             x_target = self.mlp_x_target(x_target)
-            # -> (batch_size, target_size, r_dim)
+            # (batch_size, target_size, r_dim)
 
             x_context = self.mlp_x_context(x_context)
-            # -> (batch_size, context_size, r_dim)
+            # (batch_size, context_size, r_dim)
 
             r, _ = self.cross_attn(x_target, x_context, r, need_weights=False)
-            # -> (batch_size, target_size, r_dim)
+            # (batch_size, target_size, r_dim)
 
         elif self.aggregation is not None:
             r = self.aggregation(r, dim=1)
-            # -> (batch_size, r_dim)
+            # (batch_size, r_dim)
 
             r = r.unsqueeze(1).repeat(1, x_target.shape[1], 1)
-            # -> (batch_size, target_size, r_dim)
+            # (batch_size, target_size, r_dim)
 
         return r
