@@ -3,6 +3,7 @@ from typing import List, Optional, Tuple
 import torch
 import torch.nn as nn
 from deterministic_encoder import DeterministicEncoder
+from diffusion_process import DiffusionProcess
 from latent_encoder import LatentEncoder, z_tuple
 from torch import Tensor
 
@@ -10,8 +11,8 @@ from torch import Tensor
 class Encoder(nn.Module):
     def __init__(
         self,
-        deterministic_encoder: Optional[DeterministicEncoder],
-        latent_encoder: Optional[LatentEncoder],
+        deterministic_encoder: DeterministicEncoder | None,
+        latent_encoder: LatentEncoder | DiffusionProcess | None,
     ) -> None:
         super(Encoder, self).__init__()
 
@@ -36,7 +37,7 @@ class Encoder(nn.Module):
             # (batch_size, target_size, r_dim)
 
         if self.latent_encoder is not None:
-            z_tuples = self.latent_encoder(x_context, y_context)
+            z_tuples = self.latent_encoder(x_context, y_context, x_target)
             # (batch_size, z_dim)
 
             z_repeated = z_tuples[-1].z.unsqueeze(1).repeat(1, x_target.shape[1], 1)

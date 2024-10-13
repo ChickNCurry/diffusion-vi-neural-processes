@@ -1,9 +1,8 @@
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import torch
 import torch.nn as nn
-from diffusion_process import DiffusionProcess
 from torch import Tensor
 
 
@@ -25,16 +24,11 @@ class LatentEncoder(nn.Module):
         non_linearity: str,
         is_attentive: bool,
         aggregation: str,
-        diffusion_process: Optional[DiffusionProcess],
-        fixed_start_density: bool = False,
     ) -> None:
         super(LatentEncoder, self).__init__()
 
-        self.aggregation = getattr(torch, aggregation) if aggregation else None
+        self.aggregation = getattr(torch, aggregation)
         self.is_attentive = is_attentive
-        self.diffusion_process = diffusion_process
-        self.fixed_start_density = fixed_start_density
-        self.z_dim = z_dim
 
         self.mlp = nn.Sequential(
             nn.Linear(x_dim + y_dim, h_dim),
@@ -50,7 +44,6 @@ class LatentEncoder(nn.Module):
 
         self.proj_z_mu = nn.Linear(h_dim, z_dim)
         self.proj_z_w = nn.Linear(h_dim, z_dim)
-        self.proj_z_r = nn.Linear(h_dim, z_dim)
 
     def reparameterize(self, z_mu: Tensor, z_w: Tensor) -> Tuple[Tensor, Tensor]:
         # (batch_size, z_dim)
@@ -67,7 +60,9 @@ class LatentEncoder(nn.Module):
 
         return z, z_sigma
 
-    def forward(self, x_context: Tensor, y_context: Tensor) -> List[z_tuple]:
+    def forward(
+        self, x_context: Tensor, y_context: Tensor, x_target: Tensor
+    ) -> List[z_tuple]:
         # (batch_size, context_size, x_dim)
         # (batch_size, context_size, y_dim)
 
@@ -84,30 +79,10 @@ class LatentEncoder(nn.Module):
         h = self.aggregation(h, dim=1)
         # -> (batch_size, h_dim)
 
-        if self.diffusion_process is None or self.fixed_start_density is False:
-            z_mu, z_w = self.proj_z_mu(h), self.proj_z_w(h)
-            z, z_sigma = self.reparameterize(z_mu, z_w)
-            # -> (batch_size, z_dim)
+        z_mu, z_w = self.proj_z_mu(h), self.proj_z_w(h)
+        z, z_sigma = self.reparameterize(z_mu, z_w)
+        # -> (batch_size, z_dim)
 
-            z_tuples = [z_tuple(z, z_mu, z_sigma)]
-
-        if self.diffusion_process is not None:
-            # z_r = self.proj_z_r(h)
-            # -> (batch_size, z_dim)
-
-            if self.fixed_start_density is True:
-                z_mu = torch.zeros((h.shape[0], self.z_dim), device=h.device)
-                z_sigma = self.diffusion_process.sigmas[0]
-                z = torch.normal(z_mu, z_sigma).to(h.device)
-                # -> (batch_size, z_dim)
-
-                z_tuples = [z_tuple(z, z_mu, z_sigma)]
-
-            for t in range(self.diffusion_process.num_steps):
-                z_tuples.append(
-                    z_tuple(
-                        *self.diffusion_process.forward_transition(z_tuples[-1].z, t, h)
-                    )
-                )
+        z_tuples = [z_tuple(z, z_mu, z_sigma)]
 
         return z_tuples

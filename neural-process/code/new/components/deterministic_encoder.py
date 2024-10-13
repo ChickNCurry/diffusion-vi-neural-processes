@@ -16,11 +16,13 @@ class DeterministicEncoder(nn.Module):
         non_linearity: str,
         is_attentive: bool,
         aggregation: Optional[str],
+        expand: bool = True,
     ) -> None:
         super(DeterministicEncoder, self).__init__()
 
         self.is_attentive = is_attentive
         self.aggregation = getattr(torch, aggregation) if aggregation else None
+        self.expand = expand
 
         assert self.is_attentive == (self.aggregation is None)
 
@@ -84,7 +86,8 @@ class DeterministicEncoder(nn.Module):
             r = self.aggregation(r, dim=1)
             # (batch_size, r_dim)
 
-            r = r.unsqueeze(1).repeat(1, x_target.shape[1], 1)
-            # (batch_size, target_size, r_dim)
+            if self.expand:
+                r = r.unsqueeze(1).repeat(1, x_target.shape[1], 1)
+                # (batch_size, target_size, r_dim)
 
         return r
