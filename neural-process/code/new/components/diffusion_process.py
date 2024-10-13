@@ -3,7 +3,7 @@ from typing import List, Tuple
 
 import torch
 from deterministic_encoder import DeterministicEncoder
-from latent_encoder import z_tuple
+from latent_encoder import LatentEncoder, z_tuple
 from torch import Tensor, nn
 
 
@@ -17,16 +17,19 @@ class DiffusionProcess(nn.Module, ABC):
         num_layers: int,
         non_linearity: str,
         num_steps: int,
-        encoder: DeterministicEncoder,
+        det_encoder: DeterministicEncoder,
+        lat_encoder: LatentEncoder,
     ) -> None:
         super(DiffusionProcess, self).__init__()
 
         assert num_steps > 0
 
         self.num_steps = num_steps
-        self.encoder = encoder
-        self.delta_t = torch.tensor(1 / num_steps).to(device)
         self.z_dim = z_dim
+        self.det_encoder = det_encoder
+        self.lat_encoder = lat_encoder
+
+        self.delta_t = torch.tensor(1 / num_steps).to(device)
 
         self.score_mlp = nn.Sequential(
             nn.Linear(z_dim + r_dim, h_dim),
@@ -67,14 +70,30 @@ class DiffusionProcess(nn.Module, ABC):
 
         return z
 
-    def forward_process(self, r: Tensor) -> List[z_tuple]:
-        # (batch_size, target_size, r_dim)
+    def forward(
+        self, x_context: Tensor, y_context: Tensor, x_target: Tensor
+    ) -> List[z_tuple]:
+        # (batch_size, context_size, x_dim)
+        # (batch_size, context_size, y_dim)
+        # (batch_size, target_size, x_dim)
+
+        z_tuples = self.forward_process(x_context, y_context, x_target)
+
+        return z_tuples
+
+    def forward_process(
+        self, x_context: Tensor, y_context: Tensor, x_target: Tensor
+    ) -> List[z_tuple]:
+        # (batch_size, context_size, x_dim)
+        # (batch_size, context_size, y_dim)
+        # (batch_size, target_size, x_dim)
+
+        r = self.det_encoder(x_context, y_context, x_target)
+        # (batch_size, r_dim)
 
         z_0_mu = torch.zeros((r.shape[0], self.z_dim), device=r.device)
         z_0_sigma = self.get_sigma(0)
-        z_0 = torch.normal(
-            z_0_mu, z_0_sigma
-        )  # z_0 = self.reparameterize(z_0_mu, z_0_sigma)
+        z_0 = torch.normal(z_0_mu, z_0_sigma)
         # (batch_size, z_dim)
 
         z_tuples = [z_tuple(z_0, z_0_mu, z_0_sigma)]
@@ -88,35 +107,30 @@ class DiffusionProcess(nn.Module, ABC):
 
         return z_tuples
 
-    def backward_process(self, r: Tensor, z_tuples: List[z_tuple]) -> List[z_tuple]:
-        # (batch_size, target_size, r_dim)
-
-        z_T_mu = torch.zeros((r.shape[0], self.z_dim), device=r.device)
-        z_T_sigma = torch.ones((r.shape[0], self.z_dim), device=r.device)
-        # (batch_size, z_dim)
-
-        z_tuples[-1] = z_tuple(z_tuples[-1].z, z_T_mu, z_T_sigma)
-
-        for t in range(self.num_steps - 1, 0, -1):
-
-            z_mu, z_sigma = self.backward_z_mu_and_z_sigma(z_tuples[t].z, t, r)
-
-            z_tuples[t - 1] = z_tuple(z_tuples[t - 1].z, z_mu, z_sigma)
-
-        return z_tuples
-
-    def forward(
-        self, x_context: Tensor, y_context: Tensor, x_target: Tensor
+    def backward_process(
+        self,
+        z_samples: List[Tensor],
+        x_context: Tensor,
+        y_context: Tensor,
+        x_target: Tensor,
     ) -> List[z_tuple]:
         # (batch_size, context_size, x_dim)
         # (batch_size, context_size, y_dim)
         # (batch_size, target_size, x_dim)
 
-        r = self.encoder(x_context, y_context, x_target)
-        # (batch_size, target_size, r_dim)
+        r = self.det_encoder(x_context, y_context, x_target)
+        # (batch_size, r_dim)
 
-        z_tuples = self.forward_process(r)
-        # (batch_size, target_size, z_dim)
+        z_T_tuples: List[z_tuple] = self.lat_encoder(x_context, y_context, x_target)
+        # (batch_size, z_dim)
+
+        z_tuples = [z_tuple(z_samples[-1], z_T_tuples[0].z_mu, z_T_tuples[0].z_sigma)]
+
+        for t in range(self.num_steps - 1, 0, -1):
+
+            z_mu, z_sigma = self.backward_z_mu_and_z_sigma(z_samples[t], t, r)
+
+            z_tuples.append(z_tuple(z_samples[t - 1], z_mu, z_sigma))
 
         return z_tuples
 
@@ -131,10 +145,19 @@ class DIS(DiffusionProcess):
         num_layers: int,
         non_linearity: str,
         num_steps: int,
-        encoder: DeterministicEncoder,
+        det_encoder: DeterministicEncoder,
+        lat_encoder: LatentEncoder,
     ) -> None:
         super(DIS, self).__init__(
-            device, r_dim, h_dim, z_dim, num_layers, non_linearity, num_steps, encoder
+            device,
+            r_dim,
+            h_dim,
+            z_dim,
+            num_layers,
+            non_linearity,
+            num_steps,
+            det_encoder,
+            lat_encoder,
         )
 
         self.betas = nn.ParameterList(
@@ -168,6 +191,7 @@ class DIS(DiffusionProcess):
         # (batch_size, z_dim)
 
         z_sigma = torch.sqrt(2 * beta_t * self.delta_t) * self.sigmas[0]
+        z_sigma = z_sigma.repeat(z_mu.shape[0], 1)
         # (batch_size, z_dim)
 
         return z_mu, z_sigma
@@ -184,6 +208,7 @@ class DIS(DiffusionProcess):
         # (batch_size, z_dim)
 
         z_sigma = torch.sqrt(2 * beta_t * self.delta_t) * self.sigmas[0]
+        z_sigma = z_sigma.repeat(z_mu.shape[0], 1)
         # (batch_size, z_dim)
 
         return z_mu, z_sigma

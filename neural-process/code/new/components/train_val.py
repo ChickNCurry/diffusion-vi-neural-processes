@@ -37,7 +37,7 @@ def train_and_validate(
 
             for batch in loop:
 
-                loss, log_like, diffu_loss = step(
+                loss, log_like, diffu_loss = step_new(
                     neural_process, device, batch, preprocessing
                 )
 
@@ -178,18 +178,11 @@ def step_new(
     x_context, y_context, _, _ = split_context_target(x_data, y_data, context_len)
 
     output_D, z_tuples_D = neural_process.encode(x_data, y_data, x_data)
-    # output_C, z_tuples_C = neural_process.encode(x_context, y_context, x_context)
-
-    r_c = neural_process.encoder.latent_encoder.encoder(x_context, y_context, x_data)  # type: ignore
-    z_tuples_C = neural_process.encoder.latent_encoder.backward_process(r_c, z_tuples_D)  # type: ignore
-
+    z_samples = [z_tuple.z for z_tuple in z_tuples_D]
+    z_tuples_C = neural_process.encoder.latent_encoder.backward_process(z_samples, x_context, y_context, x_data)  # type: ignore
     _, y_mu, y_std = neural_process.decode(x_data, output_D)
-    # _, y_mu_context, y_std_context = neural_process.decode(x_context, output_C)
 
     log_like = Normal(y_mu, y_std).log_prob(y_data).mean(dim=0).sum()  # type: ignore
-    # log_like += (
-    #     Normal(y_mu_context, y_std_context).log_prob(y_context).mean(dim=0).sum()  # type: ignore
-    # )
 
     forward_log_like = torch.stack(
         [
@@ -201,7 +194,7 @@ def step_new(
     backward_log_like = torch.stack(
         [
             Normal(z_tuples_C[i].z_mu, z_tuples_C[i].z_sigma).log_prob(z_tuples_C[i].z).mean(dim=0).sum()  # type: ignore
-            for i in range(len(z_tuples_C) - 1)
+            for i in range(len(z_tuples_C))
         ]
     ).sum()
 

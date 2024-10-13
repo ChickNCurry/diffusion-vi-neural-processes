@@ -20,9 +20,13 @@ class DeterministicEncoder(nn.Module):
     ) -> None:
         super(DeterministicEncoder, self).__init__()
 
-        self.is_attentive = is_attentive
         self.aggregation = getattr(torch, aggregation) if aggregation else None
+
+        self.is_attentive = is_attentive
         self.expand = expand
+
+        if self.expand == False:
+            assert self.is_attentive == False
 
         assert self.is_attentive == (self.aggregation is None)
 
@@ -54,10 +58,15 @@ class DeterministicEncoder(nn.Module):
 
         self.proj_r = nn.Linear(h_dim, r_dim)
 
-    def forward(self, x_context: Tensor, y_context: Tensor, x_target: Tensor) -> Tensor:
+    def forward(
+        self, x_context: Tensor, y_context: Tensor, x_target: Tensor | None
+    ) -> Tensor:
         # (batch_size, context_size, x_dim)
         # (batch_size, context_size, y_dim)
         # (batch_size, target_size, x_dim)
+
+        # if x_target is not None:
+        #     assert self.is_attentive or self.expand
 
         h = torch.cat([x_context, y_context], dim=-1)
         # (batch_size, context_size, x_dim + y_dim)
@@ -86,7 +95,7 @@ class DeterministicEncoder(nn.Module):
             r = self.aggregation(r, dim=1)
             # (batch_size, r_dim)
 
-            if self.expand:
+            if self.expand and x_target is not None:
                 r = r.unsqueeze(1).repeat(1, x_target.shape[1], 1)
                 # (batch_size, target_size, r_dim)
 
